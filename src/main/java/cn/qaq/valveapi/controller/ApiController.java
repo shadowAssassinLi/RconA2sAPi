@@ -3,6 +3,8 @@ package cn.qaq.valveapi.controller;
 import cn.qaq.valveapi.service.ApiService;
 import cn.qaq.valveapi.utils.ResponseBean;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -11,6 +13,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 public class ApiController {
+
 
     @Resource
     private ApiService service;
@@ -44,6 +47,18 @@ public class ApiController {
             return ResponseBean.SUCCESS(service.getServers(map.get("ip")));
         }else{
             return ResponseBean.ERROR("参数缺失");
+        }
+    }
+
+    @PostMapping("/queryServer")
+    public void queryServer(@RequestBody Map<String , Object> map){
+        //&& !StringUtils.isEmpty(map.get("group_id"))
+        try {
+            if (!CollectionUtils.isEmpty(map)) {
+                service.queryServer(map);
+            }
+        }catch (Exception e){
+            e.printStackTrace();
         }
     }
 }

@@ -92,7 +92,7 @@ public class UdpTools {
     public byte[] SendData(String ip,int port,byte[] data) throws IOException {
         InetAddress address = InetAddress.getByName(ip);
         DatagramPacket datagramPacket=new DatagramPacket(data,data.length,address,port);
-        datagramSocket.setSoTimeout(500);
+        datagramSocket.setSoTimeout(1000);
 
         time=System.currentTimeMillis();
         datagramSocket.send(datagramPacket);

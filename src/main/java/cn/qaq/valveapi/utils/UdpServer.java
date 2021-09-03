@@ -57,7 +57,11 @@ public class UdpServer {
                 {
                     t[j]=data[i];
                 }
-                hashMap.put("time", String.valueOf(ByteTools.getFloat(t)*1));
+                String time = String.valueOf(ByteTools.getFloat(t)*1/60);
+                if(time.contains(".")){
+                    time = time.substring(0,time.indexOf(".")) + "分钟";
+                }
+                hashMap.put("time", time);
                 list.add(hashMap);
             }
         } catch (SocketTimeoutException e) {

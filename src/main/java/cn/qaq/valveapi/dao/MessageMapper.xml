@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.qaq.valveapi.dao.MessageMapper">
+
+    <insert id="insertMessage" parameterType="map">
+        insert into group_chat_message
+        (message_id,message_seq,message_type,sub_type,group_id,self_id,user_id,message,message_time)
+        values
+        (#{message_id},#{message_seq},#{message_type},#{sub_type},
+        #{group_id},#{self_id},#{user_id},#{message},#{time})
+    </insert>
+
+    <insert id="insertOperate" parameterType="map">
+        insert into group_chat_opreate
+        (post_type,notice_type,sub_type,group_id,self_id,
+        user_id,target_id,operator_id,file,message_id,
+        duration,message_time)
+        values
+        (#{post_type},#{notice_type},#{sub_type},#{group_id},#{self_id},
+        #{user_id},#{target_id},#{operator_id},#{file},#{message_id},
+        #{duration},#{time})
+    </insert>
+
+
+</mapper>
