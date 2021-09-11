@@ -1,9 +1,7 @@
 package cn.qaq.valveapi.service;
 
 
-import cn.qaq.valveapi.common.ChatWithRobotAnswer;
 import cn.qaq.valveapi.common.ParamCommon;
-import cn.qaq.valveapi.common.PokeAnswerEnum;
 import cn.qaq.valveapi.dao.MessageMapper;
 import cn.qaq.valveapi.dao.ParamMapper;
 import cn.qaq.valveapi.feign.QueryImageUrlRandomFeign;
@@ -11,16 +9,19 @@ import cn.qaq.valveapi.feign.SendMessageToGroupFeign;
 import cn.qaq.valveapi.utils.StringUtil;
 import cn.qaq.valveapi.utils.TcpTools;
 import cn.qaq.valveapi.utils.UdpServer;
+import cn.qaq.valveapi.vo.FileFoldVo;
+import cn.qaq.valveapi.vo.FileReturnVo;
+import cn.qaq.valveapi.vo.FilesVo;
 import cn.qaq.valveapi.vo.ParamVo;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -63,31 +64,34 @@ public class ApiService {
         }
     }
 
-    public void queryServer(Map<String , Object> map) throws Exception{
+    public void queryServer(Map<String , Object> map) throws Exception {
 
+        String groupId = StringUtil.mapGet(map.get("group_id"));
+        String userId = StringUtil.mapGet(map.get("user_id"));
+
+
+
+        ParamVo groupIdParam = paramMapper.getParamByKey(ParamCommon.MY_GROUP_QQ_Key);
+        if (isEmptyParam(groupIdParam)) {
+            return;
+        }
+
+        //不是配置好的群聊或qq，不回
+        if ((!StringUtils.isEmpty(groupId) && groupIdParam.getValue().contains(groupId))
+           ||(!StringUtils.isEmpty(userId) && groupIdParam.getValue().contains(userId))){
+            groupMessage(map , groupId , userId);
+        }
+    }
+    public void groupMessage(Map<String , Object> map , String groupId , String userId) throws Exception{
         String postType = StringUtil.mapGet(map.get("post_type"));
         String noticeType = StringUtil.mapGet(map.get("notice_type"));
         String subType = StringUtil.mapGet(map.get("sub_type"));
         String messageType = StringUtil.mapGet(map.get("message_type"));
-        String groupId = StringUtil.mapGet(map.get("group_id"));
-        String userId = StringUtil.mapGet(map.get("user_id"));
         String message = StringUtil.mapGet(map.get("message"));
         String operateId = StringUtil.mapGet(map.get("operator_id"));
         String selfId = StringUtil.mapGet(map.get("self_id"));
-        String robotId = QQ_ROBOT.replace("%",selfId);
-
-
-        ParamVo groupIdParam = paramMapper.getParamByKey(ParamCommon.MY_GROUP_QQ_Key);
-        if(isEmptyParam(groupIdParam)){
-            return;
-        }
-
-        //不是群聊，或者不是配置好的群聊，不回
-        if(StringUtils.isEmpty(groupId) || !groupIdParam.getValue().contains(groupId)){
-            return;
-        }
+        String robotId = QQ_ROBOT.replace("%", selfId);
         if("notice".equals(postType)){
-
             //操作信息记录
             messageMapper.insertOperate(tranMap(map));
 
@@ -105,7 +109,6 @@ public class ApiService {
             }
 
         }else if("message".equals(postType)){
-
             //群聊信息记录
             messageMapper.insertMessage(tranMap(map));
 
@@ -125,8 +128,10 @@ public class ApiService {
                     queryServerInfo(map,message, groupId);
                 }
             }else{
-            //私聊消息
-
+                //私聊消息
+                if(!userId.equals(selfId)) {
+                    chatWithPerson(message, userId);
+                }
             }
         }
     }
@@ -187,24 +192,55 @@ public class ApiService {
         }
     }
 
-    private void chatWithPerson(String message, String userId) {
-//        if(!ROBOT_QQ.equals(userId)) {
-//            String result = null;
-//            Map<String, Object> sendMsg = new HashMap<>();
-//
-//            try {
-//                Map<String, Object> imageUrlRandom = queryImageUrlRandomFeign.getImageUrlRandom();
-//            }catch (Exception e){
-//                e.printStackTrace();
-//            }
-//            result = "[CQ:image,file=https://scpic2.chinaz.net/Files/pic/pic9/202107/apic33885_s.jpg,id=40000]你们别为难人家啊!";
-//
-//            sendMsg.put("user_id", userId);
-//            sendMsg.put("message", result);
-//            Map<String, String> stringStringMap = sendMessageToGroupFeign.sendMessageToPerson(sendMsg);
-//            System.out.println(stringStringMap);
-//        }
+    //私聊
+    private void chatWithPerson(String message, String userId) throws Exception{
+        String[] dealStr = message.split(",");
+        //如果是能分成两段，可能是查询群文件urlde
+        if(2 == dealStr.length){
+            queryGroupUrl(dealStr[0],dealStr[1],userId);
+        }
     }
+
+    //查询群文件url
+    private void queryGroupUrl(String groupQQ, String fileName, String userId) throws Exception{
+        try {
+            Map<String,Object> fileReturnVo = queryRootFilesToGroup(groupQQ);
+            if(null == fileReturnVo.get("data")){
+                return;
+            }
+            fileReturnVo = (Map<String, Object>) fileReturnVo.get("data");
+            List<String> fileStr = new ArrayList<>();
+            //第一层文件夹
+            if (null != fileReturnVo && null !=fileReturnVo.get("folders")){
+                for(Map<String, String> map : (List<Map<String,String>>)fileReturnVo.get("folders")){
+                    if(fileName.equals(map.get("folder_name"))){
+                        Map<String,Object> fileReturnVo1 = queryGroupFilesByFolder(groupQQ , map.get("folder_id"));
+                        if(null == fileReturnVo1.get("data")){
+                            return;
+                        }
+                        fileReturnVo1 = (Map<String, Object>) fileReturnVo1.get("data");
+                        if(null != fileReturnVo1 && null != fileReturnVo1.get("files")){
+                            fileStr = queryFileUrl(groupQQ , (List<Map<String,String>>)fileReturnVo1.get("files"));
+                        }
+                    }
+                }
+            }
+            //文件
+            if (null != fileReturnVo && null != fileReturnVo.get("files") && "所有".equals(fileName)){
+                fileStr = queryFileUrl(groupQQ , (List<Map<String,String>>)fileReturnVo.get("files"));
+            }
+            if(!CollectionUtils.isEmpty(fileStr)) {
+                for (String result : fileStr){
+                    sendMessageToPerson(userId, result, null);
+                }
+            }
+
+        }catch (Exception e){
+            throw e;
+        }
+    }
+
+
 
     //和机器人互动
     private void chatWithRobot(Map<String, Object> map, String message,String groupId) {
@@ -218,11 +254,19 @@ public class ApiService {
                     .replace("？","!").replace("嘛","");
             result = changeYouAndMe(result);
         }else{
-            ParamVo paramByKey = paramMapper.getParamByKey(message);
-            if(!isEmptyParam(paramByKey)){
-                result = paramByKey.getValue();
+            List<ParamVo> messageList = paramMapper.getParamListByKey(message).stream().filter( e ->
+                    {
+                        if(ParamCommon.CODE_HELP.equals(e.getCode()) || ParamCommon.CODE_CHAT.equals(e.getCode())){
+                            return true;
+                        }
+                        return false;
+                    }
+            ).collect(Collectors.toList());
+            if(!CollectionUtils.isEmpty(messageList)){
+                Random random = new Random();
+                result = messageList.get(random.nextInt(messageList.size())).getValue();
             }else {
-                List<ParamVo> chatAnswerList = paramMapper.getParamByCode(ParamCommon.CODE_CHAT);
+                List<ParamVo> chatAnswerList = paramMapper.getParamListByKeyAndCode(ParamCommon.NO_MATCH_KEY,ParamCommon.CODE_CHAT);
                 if(!CollectionUtils.isEmpty(chatAnswerList)){
                     Random random = new Random();
                     result = chatAnswerList.get(random.nextInt(chatAnswerList.size())).getValue();
@@ -295,6 +339,30 @@ public class ApiService {
         sendMessageToGroupFeign.sendMessageToPerson(sendMsg);
     }
 
+    //获取群根目录文件列表
+    private Map<String,Object> queryRootFilesToGroup(String groupId){
+        Map<String , Object> sendMsg = new HashMap<>();
+        sendMsg.put("group_id",groupId);
+        return sendMessageToGroupFeign.getGroupRootFiles(sendMsg);
+    }
+
+    //获取群子目录文件列表
+    private Map<String,Object> queryGroupFilesByFolder(String groupId ,String folderId){
+        Map<String , Object> sendMsg = new HashMap<>();
+        sendMsg.put("group_id",groupId);
+        sendMsg.put("folder_id",folderId);
+        return sendMessageToGroupFeign.getGroupFilesByFolder(sendMsg);
+    }
+
+    //获取群文件资源链接
+    private Map<String,Object> queryGroupFileUrl(String groupId ,String fileId ,String busId){
+        Map<String , Object> sendMsg = new HashMap<>();
+        sendMsg.put("group_id",groupId);
+        sendMsg.put("file_id",fileId);
+        sendMsg.put("busid",busId);
+        return sendMessageToGroupFeign.getGroupFileUrl(sendMsg);
+    }
+
     //没有返回的时候
     private String noAnswerResult() {
         ParamVo paramByKey = paramMapper.getParamByKey(ParamCommon.NO_ANSWER_KEY);
@@ -318,5 +386,23 @@ public class ApiService {
             }
         }
         return sb.toString();
+    }
+
+    //查询文件 Url
+    private List<String> queryFileUrl(String groupQQ, List<Map<String, String>> files) {
+        List<String> filesStr = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        for(int i = 1 ; i<=files.size() ; i++){
+            Map<String, Object> map = queryGroupFileUrl(groupQQ, files.get(i-1).get("file_id"), String.valueOf(files.get(i-1).get("busid")));
+            sb.append(files.get(i-1).get("file_name")).append(",").append(StringUtil.mapGet(((Map<String, Object>)map.get("data")).get("url"))).append(NEXT_LINE).append(NEXT_LINE);
+            if( i%10 == 0){
+                filesStr.add(sb.toString());
+                sb = new StringBuilder();
+            }
+        }
+        if(!StringUtils.isEmpty(sb.toString())){
+            filesStr.add(sb.toString());
+        }
+        return filesStr;
     }
 }

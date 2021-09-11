@@ -17,5 +17,14 @@
     <select id="getParamByCode"  parameterType="string" resultMap="paramMap">
         select distinct value,code from servers_params where code = #{code} and status = 1
     </select>
+    <select id="getParamByKeyAndCode" resultMap="paramMap">
+         select value,code from servers_params where param_key = #{key} and code = #{code} and status = 1 limit 1
+    </select>
+    <select id="getParamListByKey" resultMap="paramMap">
+         select value,code from servers_params where param_key = #{key} and status = 1
+    </select>
+    <select id="getParamListByKeyAndCode" resultMap="paramMap">
+         select value,code from servers_params where param_key = #{key} and code = #{code} and status = 1
+    </select>
 
 </mapper>

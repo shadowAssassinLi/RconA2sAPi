@@ -18,6 +18,8 @@ public class ParamCommon {
 
     public static final String MY_GROUP_QQ_Key = "my_group_id";
 
+    public static final String NO_MATCH_KEY = " ";
+
     public static final String NO_ANSWER_KEY = "no_server_answer";
 
     public static final String NO_ANSWER_KEY_STR = "服务器消失啦!";
