@@ -9,7 +9,7 @@ import java.util.List;
 @Mapper
 public interface ParamMapper {
 
-    ParamVo getParamByKey(@Param("key")String key);
+    List<ParamVo> getParamByKey(@Param("key")String key);
 
     List<ParamVo>  getParamListByKey(@Param("key")String key);
 

@@ -16,6 +16,8 @@ public class ParamCommon {
 
     public static final String CODE_ALL_IP = "all_ip";
 
+    public static final String CODE_NO_AT = "no_at";
+
     public static final String MY_GROUP_QQ_Key = "my_group_id";
 
     public static final String NO_MATCH_KEY = " ";

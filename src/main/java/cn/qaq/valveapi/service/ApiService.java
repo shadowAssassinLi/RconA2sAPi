@@ -70,15 +70,14 @@ public class ApiService {
         String userId = StringUtil.mapGet(map.get("user_id"));
 
 
-
-        ParamVo groupIdParam = paramMapper.getParamByKey(ParamCommon.MY_GROUP_QQ_Key);
-        if (isEmptyParam(groupIdParam)) {
+        List<ParamVo> groupIdParam = paramMapper.getParamByKey(ParamCommon.MY_GROUP_QQ_Key);
+        if (CollectionUtils.isEmpty(groupIdParam)) {
             return;
         }
 
         //不是配置好的群聊或qq，不回
-        if ((!StringUtils.isEmpty(groupId) && groupIdParam.getValue().contains(groupId))
-           ||(!StringUtils.isEmpty(userId) && groupIdParam.getValue().contains(userId))){
+        if ((!StringUtils.isEmpty(groupId) && groupIdParam.get(0).getValue().contains(groupId))
+           ||(!StringUtils.isEmpty(userId) && groupIdParam.get(0).getValue().contains(userId))){
             groupMessage(map , groupId , userId);
         }
     }
@@ -114,10 +113,11 @@ public class ApiService {
 
             //群消息
             if("group".equals(messageType)){
-                ParamVo nameParam = paramMapper.getParamByKey(ParamCommon.CODE_NAME);
-                if(isEmptyParam(nameParam)){
+                List<ParamVo> nameParamList = paramMapper.getParamByKey(ParamCommon.CODE_NAME);
+                if(CollectionUtils.isEmpty(nameParamList)){
                     return;
                 }
+                ParamVo nameParam = nameParamList.get(0);
 
                 //群消息
                 if (message.contains(robotId) || message.contains(nameParam.getValue())) {
@@ -125,7 +125,7 @@ public class ApiService {
                     chatWithRobot(map, message.replace(robotId, "").replace(nameParam.getValue(),"").trim(), groupId);
                 } else {
                     //没有@机器人，查看是否是查询服务器
-                    queryServerInfo(map,message, groupId);
+                    queryServerInfo(map,message, groupId,userId);
                 }
             }else{
                 //私聊消息
@@ -279,9 +279,10 @@ public class ApiService {
 
 
     //查询服务器
-    private void queryServerInfo(Map<String, Object> map, String message ,String groupId) throws Exception{
-        ParamVo paramByKey = paramMapper.getParamByKey(message);
-        if (!isEmptyParam(paramByKey)) {
+    private void queryServerInfo(Map<String, Object> map, String message ,String groupId ,String userId) throws Exception{
+        List<ParamVo> paramByKeyList = paramMapper.getParamByKey(message);
+        if (!CollectionUtils.isEmpty(paramByKeyList)) {
+            ParamVo paramByKey = paramByKeyList.get(0);
             if (ParamCommon.CODE_IP.equals(paramByKey.getCode())){
                 String result = queryServerInfo(groupId, paramByKey.getValue());
                 sendMessageToGroup(groupId,result);
@@ -292,6 +293,20 @@ public class ApiService {
                     sb.append(queryServerInfo(groupId,paramVo.getValue())).append(NEXT_LINE);
                 }
                 sendMessageToGroup(groupId,sb.toString());
+            }else {
+                String result = null;
+                Random random = new Random();
+                List<ParamVo> personAnswer = paramByKeyList.stream().filter(e -> e.getCode().contains(userId)).collect(Collectors.toList());
+                if(!CollectionUtils.isEmpty(personAnswer)){
+                    //私人定制回答
+                    sendMessageToGroup(groupId ,personAnswer.get(random.nextInt(personAnswer.size())).getValue());
+                }else {
+                    List<ParamVo> noAtAnswer = paramByKeyList.stream().filter(e -> ParamCommon.CODE_NO_AT.equals(e.getCode())).collect(Collectors.toList());
+                    //不加上名字对话
+                    if (!CollectionUtils.isEmpty(noAtAnswer)) {
+                        sendMessageToGroup(groupId, noAtAnswer.get(random.nextInt(noAtAnswer.size())).getValue());
+                    }
+                }
             }
         }
     }
@@ -365,10 +380,11 @@ public class ApiService {
 
     //没有返回的时候
     private String noAnswerResult() {
-        ParamVo paramByKey = paramMapper.getParamByKey(ParamCommon.NO_ANSWER_KEY);
-        if(isEmptyParam(paramByKey)){
+        List<ParamVo> paramByKey1 = paramMapper.getParamByKey(ParamCommon.NO_ANSWER_KEY);
+        if(CollectionUtils.isEmpty(paramByKey1)){
             return ParamCommon.NO_ANSWER_KEY_STR;
         }
+        ParamVo paramByKey = paramByKey1.get(0);
         return paramByKey.getValue();
     }
 

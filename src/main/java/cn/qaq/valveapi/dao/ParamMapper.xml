@@ -11,7 +11,7 @@
     </resultMap>
 
     <select id="getParamByKey" parameterType="string" resultMap="paramMap">
-        select value,code from servers_params where param_key = #{key} and status = 1 limit 1
+        select value,code from servers_params where param_key = #{key} and status = 1
     </select>
 
     <select id="getParamByCode"  parameterType="string" resultMap="paramMap">
