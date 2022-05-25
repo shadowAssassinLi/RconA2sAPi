@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.qaq.valveapi.dao.MusicMapper">
+    <insert id="insertMusic" parameterType="cn.qaq.valveapi.vo.MusicVO">
+        insert into music_param (id , name ,singer ,code)
+        values
+        <foreach collection="musicList" item="music" separator=",">
+            (#{music.id},#{music.name},#{music.singer},#{music.code})
+        </foreach>
+    </insert>
+
+    <select id="getMusicByName" resultType="cn.qaq.valveapi.vo.MusicVO">
+        select id,name,singer,code
+            from music_param
+        where (name like concat('%',#{name},'%') or singer like concat('%',#{name},'%'))
+         and status = 1
+         order by singer
+    </select>
+
+    <select id="getMusicByNameAndSinger" resultType="cn.qaq.valveapi.vo.MusicVO">
+        select id,name,singer
+         from   music_param
+         where name =#{name} and singer = #{singer} and status = 1 limit 1
+    </select>
+
+</mapper>

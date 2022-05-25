@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.util.Map;
 
-@FeignClient(name = "sendMessage", url = "http://127.0.0.1:5700")
+@FeignClient(name = "sendMessage", url = "${robot.url}")
 public interface SendMessageToGroupFeign {
 
     @RequestMapping(value = "/send_group_msg" , method = RequestMethod.POST)

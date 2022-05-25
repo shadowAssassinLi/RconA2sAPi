@@ -3,16 +3,14 @@ package cn.qaq.valveapi.service;
 
 import cn.qaq.valveapi.common.ParamCommon;
 import cn.qaq.valveapi.dao.MessageMapper;
+import cn.qaq.valveapi.dao.MusicMapper;
 import cn.qaq.valveapi.dao.ParamMapper;
 import cn.qaq.valveapi.feign.QueryImageUrlRandomFeign;
 import cn.qaq.valveapi.feign.SendMessageToGroupFeign;
 import cn.qaq.valveapi.utils.StringUtil;
 import cn.qaq.valveapi.utils.TcpTools;
 import cn.qaq.valveapi.utils.UdpServer;
-import cn.qaq.valveapi.vo.FileFoldVo;
-import cn.qaq.valveapi.vo.FileReturnVo;
-import cn.qaq.valveapi.vo.FilesVo;
-import cn.qaq.valveapi.vo.ParamVo;
+import cn.qaq.valveapi.vo.*;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import javax.annotation.Resource;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -36,10 +37,12 @@ public class ApiService {
     private SendMessageToGroupFeign sendMessageToGroupFeign;
     @Autowired
     private QueryImageUrlRandomFeign queryImageUrlRandomFeign;
-    @Autowired
+    @Resource
     private ParamMapper paramMapper;
-    @Autowired
+    @Resource
     private MessageMapper messageMapper;
+    @Resource
+    private MusicMapper musicMapper;
 
     @SneakyThrows
     public List<HashMap<String, Object>> getPlayers(String ip)
@@ -111,18 +114,24 @@ public class ApiService {
             //群聊信息记录
             messageMapper.insertMessage(tranMap(map));
 
+            //获得小雪花名字
+            List<ParamVo> nameParamList = paramMapper.getParamByKey(ParamCommon.CODE_NAME);
+            if(CollectionUtils.isEmpty(nameParamList)){
+                return;
+            }
+            ParamVo nameParam = nameParamList.get(0);
             //群消息
             if("group".equals(messageType)){
-                List<ParamVo> nameParamList = paramMapper.getParamByKey(ParamCommon.CODE_NAME);
-                if(CollectionUtils.isEmpty(nameParamList)){
-                    return;
-                }
-                ParamVo nameParam = nameParamList.get(0);
-
                 //群消息
                 if (message.contains(robotId) || message.contains(nameParam.getValue())) {
                     //@机器人聊天
                     chatWithRobot(map, message.replace(robotId, "").replace(nameParam.getValue(),"").trim(), groupId);
+                }else if(message.startsWith(ParamCommon.START_PRE_MUSIC)){
+                    message = message.replace(ParamCommon.START_PRE_MUSIC,"").trim();
+                    //查询歌曲
+                    if(!StringUtils.isEmpty(message)) {
+                        queryMusic(groupId, userId, message,nameParam.getValue());
+                    }
                 } else {
                     //没有@机器人，查看是否是查询服务器
                     queryServerInfo(map,message, groupId,userId);
@@ -130,7 +139,7 @@ public class ApiService {
             }else{
                 //私聊消息
                 if(!userId.equals(selfId)) {
-                    chatWithPerson(message, userId);
+                    chatWithPerson(message, userId ,nameParam.getValue());
                 }
             }
         }
@@ -186,18 +195,38 @@ public class ApiService {
     private void increaseGroupMember(String groupId, String userId ,String noticeType) {
         if("group_increase".equals(noticeType)){
             String result = null;
-
-            result = "欢迎[CQ:at,qq="+userId+"]小伙伴的加入，大家开车时多照顾照顾！";
+            List<ParamVo> welcomeList = paramMapper.getParamByCode(ParamCommon.CODE_NEW_MEMBER);
+            result = "欢迎[CQ:at,qq="+userId+"]小伙伴的加入，";
+            //欢迎语
+            if(!CollectionUtils.isEmpty(welcomeList)){
+                Random random = new Random();
+                result = result + welcomeList.get(random.nextInt(welcomeList.size())).getValue();
+            }
             sendMessageToGroup(groupId,result);
         }
     }
 
     //私聊
-    private void chatWithPerson(String message, String userId) throws Exception{
-        String[] dealStr = message.split(",");
-        //如果是能分成两段，可能是查询群文件urlde
-        if(2 == dealStr.length){
-            queryGroupUrl(dealStr[0],dealStr[1],userId);
+    private void chatWithPerson(String message, String userId , String robotName) throws Exception{
+        ParamVo chatQQ = paramMapper.getParamByKeyAndCode(ParamCommon.KEY_QQ_ID, ParamCommon.CODE_QQ);
+        ParamVo chatGroupQQ = paramMapper.getParamByKeyAndCode(ParamCommon.MY_GROUP_QQ_Key, ParamCommon.CODE_QQ);
+        //如果在配置好的聊天qq里就回信息
+        if(null != chatQQ && chatQQ.getValue().contains(userId)) {
+            String result = null;
+            if (message.startsWith(ParamCommon.START_PRE_MUSIC)) {
+                result = music(message, robotName);
+            } else {
+                String[] dealStr = message.split(",");
+                //如果是能分成两段，可能是查询群文件urlde
+                if (2 == dealStr.length && null != chatGroupQQ && chatGroupQQ.getValue().contains(dealStr[0])) {
+                    queryGroupUrl(dealStr[0], dealStr[1], userId);
+                }else{
+                    result = chat(message , userId);
+                }
+            }
+            if(!StringUtils.isEmpty(result)){
+                sendMessageToPerson(userId, result, null);
+            }
         }
     }
 
@@ -242,8 +271,15 @@ public class ApiService {
 
 
 
-    //和机器人互动
+    //群里面和机器人互动
     private void chatWithRobot(Map<String, Object> map, String message,String groupId) {
+        String result = chat(message , groupId);
+
+        sendMessageToGroup(groupId,result);
+    }
+
+    //处理和机器人互动，返回小雪花要说的话
+    private String chat( String message ,String id){
         String result = null;
         if("你好".equals(message)){
             result = "nice to meet you too!";
@@ -274,7 +310,7 @@ public class ApiService {
             }
 
         }
-        sendMessageToGroup(groupId,result);
+        return result;
     }
 
 
@@ -284,15 +320,19 @@ public class ApiService {
         if (!CollectionUtils.isEmpty(paramByKeyList)) {
             ParamVo paramByKey = paramByKeyList.get(0);
             if (ParamCommon.CODE_IP.equals(paramByKey.getCode())){
-                String result = queryServerInfo(groupId, paramByKey.getValue());
+                DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+                String time = dateFormat.format(new Date());
+                String result = queryServerInfo(groupId, paramByKey.getValue() ,time);
                 sendMessageToGroup(groupId,result);
             }else if(ParamCommon.CODE_ALL_IP.equals(paramByKey.getCode())){
                 List<ParamVo> paramVoList = paramMapper.getParamByCode(ParamCommon.CODE_IP);
                 StringBuilder sb = new StringBuilder();
+                DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+                String time = dateFormat.format(new Date());
                 for(ParamVo paramVo : paramVoList){
-                    sb.append(queryServerInfo(groupId,paramVo.getValue())).append(NEXT_LINE);
+                    sb.append(queryServerInfo(groupId,paramVo.getValue(),time)).append(NEXT_LINE);
                 }
-                sendMessageToGroup(groupId,sb.toString());
+                sendMessageToGroup(groupId,sb.toString().trim());
             }else {
                 String result = null;
                 Random random = new Random();
@@ -312,7 +352,7 @@ public class ApiService {
     }
 
     //查询服务器信息
-    private String queryServerInfo(String groupId, String ip) throws Exception{
+    private String queryServerInfo(String groupId, String ip ,String time) throws Exception{
         String result = null;
         try {
             List<HashMap<String, Object>> players = UdpServer.getPlayers(ip);
@@ -321,6 +361,7 @@ public class ApiService {
             result = server.get("name") + NEXT_LINE +
                     "地图:" + server.get("map") + NEXT_LINE +
                     "延迟:" + server.get("time") + NEXT_LINE +
+                    "时间:" +time +NEXT_LINE+
                     "ip:" + ip + NEXT_LINE +
                     "人数:" + server.get("players") + NEXT_LINE;
             for (HashMap<String, Object> player : players) {
@@ -420,5 +461,51 @@ public class ApiService {
             filesStr.add(sb.toString());
         }
         return filesStr;
+    }
+
+    //查询歌曲并返回
+    private void queryMusic(String groupId, String userId, String message ,String robotName) {
+        String result = music(message,robotName);
+        if(!StringUtils.isEmpty(result)) {
+            sendMessageToGroup(groupId, result);
+        }
+    }
+
+    private String music(String message ,String robotName) {
+        List<ParamVo> musicModeList = paramMapper.getParamListByKeyAndCode(ParamCommon.MUSIC_MODE_KEY, ParamCommon.MUSIC_MODE_CODE);
+        if (!CollectionUtils.isEmpty(musicModeList)) {
+            String mode = musicModeList.get(0).getValue();
+            StringBuilder result = new StringBuilder();
+            if (message.contains("/")) {
+                //查询歌名加歌手    用 / 号隔开
+                String[] params = message.split("/");
+                MusicVO musicVO = musicMapper.getMusicByNameAndSinger(params[0], params[1]);
+                if (null != musicVO && null != musicVO.getId()) {
+                    String id = musicVO.getId();
+                    String title = musicVO.getName() + (StringUtils.isEmpty(musicVO.getSinger()) ? "" : NEXT_LINE + musicVO.getSinger());
+                    result.append(mode.replace(ParamCommon.MUSIC_ID, id)
+                            .replace(ParamCommon.MUSIC_NAME, title));
+                } else {
+                    //DOTO 需要查询并插入数据库
+                }
+            } else {
+                //查询歌名
+                List<MusicVO> musicVOList = musicMapper.getMusicByName(message);
+                if (!CollectionUtils.isEmpty(musicVOList)) {
+                    for (MusicVO musicVO : musicVOList) {
+                        String song = musicVO.getName() + "/" + musicVO.getSinger();
+                        result.append(song + NEXT_LINE);
+                    }
+                } else {
+                    //DOTO 需要查询并插入数据库
+                }
+            }
+
+            if (StringUtils.isEmpty(result.toString())) {
+                result.append(robotName).append("怎么也找不到这首歌啦...");
+            }
+            return result.toString();
+        }
+        return null;
     }
 }
