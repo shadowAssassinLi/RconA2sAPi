@@ -1,6 +1,7 @@
 package cn.qaq.valveapi.service;
 
 
+import cn.qaq.valveapi.chatgpt.ChatGptService;
 import cn.qaq.valveapi.common.ParamCommon;
 import cn.qaq.valveapi.dao.MessageMapper;
 import cn.qaq.valveapi.dao.MusicMapper;
@@ -21,6 +22,7 @@ import org.springframework.util.StringUtils;
 import javax.annotation.Resource;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,6 +33,8 @@ public class ApiService {
     private static String NEXT_LINE = "\r\n";
 
     private static String QQ_ROBOT = "[CQ:at,qq=%]";
+
+    private Map<String, Object> repeatMod = new HashMap<>();
 
 
     @Autowired
@@ -43,6 +47,9 @@ public class ApiService {
     private MessageMapper messageMapper;
     @Resource
     private MusicMapper musicMapper;
+
+    @Autowired
+    private ChatGptService chatGptService;
 
     @SneakyThrows
     public List<HashMap<String, Object>> getPlayers(String ip)
@@ -72,11 +79,14 @@ public class ApiService {
         String groupId = StringUtil.mapGet(map.get("group_id"));
         String userId = StringUtil.mapGet(map.get("user_id"));
 
-
         List<ParamVo> groupIdParam = paramMapper.getParamByKey(ParamCommon.MY_GROUP_QQ_Key);
         if (CollectionUtils.isEmpty(groupIdParam)) {
             return;
         }
+//        Integer count = messageMapper.isExist(StringUtil.mapGet(map.get("message_id")));
+//        if(count>0){
+//            return;
+//        }
 
         //不是配置好的群聊或qq，不回
         if ((!StringUtils.isEmpty(groupId) && groupIdParam.get(0).getValue().contains(groupId))
@@ -125,7 +135,8 @@ public class ApiService {
                 //群消息
                 if (message.contains(robotId) || message.contains(nameParam.getValue())) {
                     //@机器人聊天
-                    chatWithRobot(map, message.replace(robotId, "").replace(nameParam.getValue(),"").trim(), groupId);
+                    log.info("接受群信息={}",message);
+                    chatWithRobot(map, message.replace(robotId, "").replace(nameParam.getValue(), "").trim(), groupId);
                 }else if(message.startsWith(ParamCommon.START_PRE_MUSIC)){
                     message = message.replace(ParamCommon.START_PRE_MUSIC,"").trim();
                     //查询歌曲
@@ -214,16 +225,23 @@ public class ApiService {
         if(null != chatQQ && chatQQ.getValue().contains(userId)) {
             String result = null;
             if (message.startsWith(ParamCommon.START_PRE_MUSIC)) {
+                message = message.replace(ParamCommon.START_PRE_MUSIC,"").trim();
                 result = music(message, robotName);
             } else {
-                String[] dealStr = message.split(",");
-                //如果是能分成两段，可能是查询群文件urlde
-                if (2 == dealStr.length && null != chatGroupQQ && chatGroupQQ.getValue().contains(dealStr[0])) {
-                    queryGroupUrl(dealStr[0], dealStr[1], userId);
-                }else{
-                    result = chat(message , userId);
-                }
+//                String[] dealStr = message.split(",");
+//                //如果是能分成两段，可能是查询群文件urlde
+//                if (2 == dealStr.length && null != chatGroupQQ && chatGroupQQ.getValue().contains(dealStr[0])) {
+//                    queryGroupUrl(dealStr[0], dealStr[1], userId);
+//                }else{
+//                    if(message.contains(robotName)){
+//                        result = chat(message , userId);
+//                    }else{
+//                        result = serviceInfo(message, userId);
+//                    }
+//                }
+                result = chatGptService.chatWithGPT(message);
             }
+            //如果有信息就发送
             if(!StringUtils.isEmpty(result)){
                 sendMessageToPerson(userId, result, null);
             }
@@ -273,9 +291,27 @@ public class ApiService {
 
     //群里面和机器人互动
     private void chatWithRobot(Map<String, Object> map, String message,String groupId) {
-        String result = chat(message , groupId);
-
-        sendMessageToGroup(groupId,result);
+        String result = null;
+        //复读机模式
+//        if("开启复读机模式".equals(message)){
+//            repeatMod.put("id",StringUtil.mapGet(map.get("user_id")));
+//            repeatMod.put("groupId",groupId);
+//            repeatMod.put("time", LocalDateTime.now());
+//            result = "开启复读机模式";
+//        }else if("关闭复读机模式".equals(message)){
+//            if(!CollectionUtils.isEmpty(repeatMod) && StringUtil.mapGet(map.get("user_id")).equals(repeatMod.get("id")) && groupId.equals(repeatMod.get("groupId"))) {
+//                repeatMod = new HashMap<>();
+//                result = "关闭复读机模式";
+//            }
+//        } else {
+//            result = chat(message, groupId);
+//        }
+        result = chatGptService.chatWithGPT(message);
+        System.out.println("机器人返回"+result);
+//        result = "你好";
+        if(!StringUtils.isEmpty(result)) {
+            sendMessageToGroup(groupId, result);
+        }
     }
 
     //处理和机器人互动，返回小雪花要说的话
@@ -316,39 +352,62 @@ public class ApiService {
 
     //查询服务器
     private void queryServerInfo(Map<String, Object> map, String message ,String groupId ,String userId) throws Exception{
-        List<ParamVo> paramByKeyList = paramMapper.getParamByKey(message);
-        if (!CollectionUtils.isEmpty(paramByKeyList)) {
-            ParamVo paramByKey = paramByKeyList.get(0);
-            if (ParamCommon.CODE_IP.equals(paramByKey.getCode())){
-                DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
-                String time = dateFormat.format(new Date());
-                String result = queryServerInfo(groupId, paramByKey.getValue() ,time);
-                sendMessageToGroup(groupId,result);
-            }else if(ParamCommon.CODE_ALL_IP.equals(paramByKey.getCode())){
-                List<ParamVo> paramVoList = paramMapper.getParamByCode(ParamCommon.CODE_IP);
-                StringBuilder sb = new StringBuilder();
-                DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
-                String time = dateFormat.format(new Date());
-                for(ParamVo paramVo : paramVoList){
-                    sb.append(queryServerInfo(groupId,paramVo.getValue(),time)).append(NEXT_LINE);
-                }
-                sendMessageToGroup(groupId,sb.toString().trim());
-            }else {
+        String result = null;
+        //开启复读机模式
+        if(!CollectionUtils.isEmpty(repeatMod)){
+            if(((LocalDateTime)repeatMod.get("time")).isBefore(LocalDateTime.now().minusMinutes(5))){
+                repeatMod = new HashMap<>();
+            }else if(userId.equals(repeatMod.get("id")) && groupId.equals(repeatMod.get("groupId"))){
+                result = message;
+            }
+        }else {
+            result = serviceInfo(message, userId);
+        }
+        if(!StringUtils.isEmpty(result)){
+            sendMessageToGroup(groupId, result);
+        }
+    }
+
+    //查询服务器信息
+    private String serviceInfo( String message ,String userId){
+        try {
+            List<ParamVo> paramByKeyList = paramMapper.getParamByKey(message);
+            if (!CollectionUtils.isEmpty(paramByKeyList)) {
                 String result = null;
-                Random random = new Random();
-                List<ParamVo> personAnswer = paramByKeyList.stream().filter(e -> e.getCode().contains(userId)).collect(Collectors.toList());
-                if(!CollectionUtils.isEmpty(personAnswer)){
-                    //私人定制回答
-                    sendMessageToGroup(groupId ,personAnswer.get(random.nextInt(personAnswer.size())).getValue());
-                }else {
-                    List<ParamVo> noAtAnswer = paramByKeyList.stream().filter(e -> ParamCommon.CODE_NO_AT.equals(e.getCode())).collect(Collectors.toList());
-                    //不加上名字对话
-                    if (!CollectionUtils.isEmpty(noAtAnswer)) {
-                        sendMessageToGroup(groupId, noAtAnswer.get(random.nextInt(noAtAnswer.size())).getValue());
+                ParamVo paramByKey = paramByKeyList.get(0);
+                if (ParamCommon.CODE_IP.equals(paramByKey.getCode())) {
+                    DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+                    String time = dateFormat.format(new Date());
+                    result = queryServerInfo(null, paramByKey.getValue(), time);
+                } else if (ParamCommon.CODE_ALL_IP.equals(paramByKey.getCode())) {
+                    List<ParamVo> paramVoList = paramMapper.getParamByCode(ParamCommon.CODE_IP);
+                    StringBuilder sb = new StringBuilder();
+                    DateFormat dateFormat = new SimpleDateFormat("HH:mm:ss");
+                    String time = dateFormat.format(new Date());
+                    for (ParamVo paramVo : paramVoList) {
+                        sb.append(queryServerInfo(null, paramVo.getValue(), time)).append(NEXT_LINE);
+                    }
+                    result = sb.toString().trim();
+                } else {
+                    Random random = new Random();
+                    List<ParamVo> personAnswer = paramByKeyList.stream().filter(e -> e.getCode().contains(userId)).collect(Collectors.toList());
+                    if (!CollectionUtils.isEmpty(personAnswer)) {
+                        //私人定制回答
+                        sendMessageToGroup(null, personAnswer.get(random.nextInt(personAnswer.size())).getValue());
+                    } else {
+                        List<ParamVo> noAtAnswer = paramByKeyList.stream().filter(e -> ParamCommon.CODE_NO_AT.equals(e.getCode())).collect(Collectors.toList());
+                        //不加上名字对话
+                        if (!CollectionUtils.isEmpty(noAtAnswer)) {
+                            result = noAtAnswer.get(random.nextInt(noAtAnswer.size())).getValue();
+                        }
                     }
                 }
+                return  result;
             }
+        }catch (Exception e){
+            return null;
         }
+        return null;
     }
 
     //查询服务器信息

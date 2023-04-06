@@ -20,6 +20,10 @@
         #{user_id},#{target_id},#{operator_id},#{file},#{message_id},
         #{duration},#{time})
     </insert>
+    <select id="isExist" resultType="java.lang.Integer">
+        select count(*) from group_chat_message
+        where message_id = #{messageId}
+    </select>
 
 
 </mapper>
